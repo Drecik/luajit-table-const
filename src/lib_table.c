@@ -105,6 +105,13 @@ LJLIB_CF(table_insert)		LJLIB_REC(.)
   return 0;
 }
 
+LJLIB_CF(table_constant)
+{
+	GCtab *t = lj_lib_checktab(L, 1);
+	markconstant(obj2gco(t));
+	return 0;
+}
+
 LJLIB_LUA(table_remove) /*
   function(t, pos)
     CHECK_tab(t)

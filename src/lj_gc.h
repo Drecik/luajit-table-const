@@ -23,6 +23,7 @@ enum {
 #define LJ_GC_CDATA_FIN	0x10
 #define LJ_GC_FIXED	0x20
 #define LJ_GC_SFIXED	0x40
+#define LJ_GC_CONSTANT	0x80
 
 #define LJ_GC_WHITES	(LJ_GC_WHITE0 | LJ_GC_WHITE1)
 #define LJ_GC_COLORS	(LJ_GC_WHITES | LJ_GC_BLACK)
@@ -35,6 +36,8 @@ enum {
 #define tviswhite(x)	(tvisgcv(x) && iswhite(gcV(x)))
 #define otherwhite(g)	(g->gc.currentwhite ^ LJ_GC_WHITES)
 #define isdead(g, v)	((v)->gch.marked & otherwhite(g) & LJ_GC_WHITES)
+#define isconstant(x) ((x)->gch.marked & LJ_GC_CONSTANT)
+#define isfixed(x)  ((x)->gch.marked & LJ_GC_FIXED)
 
 #define curwhite(g)	((g)->gc.currentwhite & LJ_GC_WHITES)
 #define newwhite(g, x)	(obj2gco(x)->gch.marked = (uint8_t)curwhite(g))
@@ -44,6 +47,8 @@ enum {
 #define black2gray(x)	((x)->gch.marked &= (uint8_t)~LJ_GC_BLACK)
 #define fixstring(s)	((s)->marked |= LJ_GC_FIXED)
 #define markfinalized(x)	((x)->gch.marked |= LJ_GC_FINALIZED)
+#define markconstant(x) ((x)->gch.marked |= LJ_GC_CONSTANT)
+#define markfixed(x)  ((x)->gch.marked |= LJ_GC_FIXED)
 
 /* Collector. */
 LJ_FUNC size_t lj_gc_separateudata(global_State *g, int all);

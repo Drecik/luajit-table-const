@@ -157,11 +157,24 @@ size_t lj_gc_separateudata(global_State *g, int all)
 /* Traverse a table. */
 static int gc_traverse_tab(global_State *g, GCtab *t)
 {
+  GCobj *gco = obj2gco(t);
+  if (isfixed(gco)) return 0;		// 已加入到constant链表，不再往下遍历;
+  int isconstant = isconstant(gco);
+  if (isconstant)
+  {
+	  markfixed(gco);
+  }
   int weak = 0;
   cTValue *mode;
   GCtab *mt = tabref(t->metatable);
   if (mt)
-    gc_markobj(g, mt);
+  {
+	  gc_markobj(g, mt);
+	  if (isconstant)
+	  {
+		  markconstant(obj2gco(mt));
+	  }
+  }
   mode = lj_meta_fastg(g, mt, MM_mode);
   if (mode && tvisstr(mode)) {  /* Valid __mode field? */
     const char *modestr = strVdata(mode);
@@ -188,8 +201,27 @@ static int gc_traverse_tab(global_State *g, GCtab *t)
     return 1;
   if (!(weak & LJ_GC_WEAKVAL)) {  /* Mark array part. */
     MSize i, asize = t->asize;
-    for (i = 0; i < asize; i++)
-      gc_marktv(g, arrayslot(t, i));
+	for (i = 0; i < asize; i++)
+	{
+		TValue *val = arrayslot(t, i);
+		if (tvisgcv(val) && isconstant)
+		{
+			GCobj *valgcobj = gcval(val);
+			if (valgcobj->gch.gct == ~LJ_TSTR)
+			{
+				fixstring(gco2str(valgcobj));
+			}
+			else if (valgcobj->gch.gct == ~LJ_TTAB)
+			{
+				markconstant(valgcobj);
+				if (iswhite(valgcobj) == 0)
+				{
+					makewhite(g, valgcobj);
+				}
+			}
+		}
+		gc_marktv(g, val);
+	}
   }
   if (t->hmask > 0) {  /* Mark hash part. */
     Node *node = noderef(t->node);
@@ -198,8 +230,48 @@ static int gc_traverse_tab(global_State *g, GCtab *t)
       Node *n = &node[i];
       if (!tvisnil(&n->val)) {  /* Mark non-empty slot. */
 	lua_assert(!tvisnil(&n->key));
-	if (!(weak & LJ_GC_WEAKKEY)) gc_marktv(g, &n->key);
-	if (!(weak & LJ_GC_WEAKVAL)) gc_marktv(g, &n->val);
+	if (!(weak & LJ_GC_WEAKKEY))
+	{
+		TValue *key = &n->key;
+		if (tvisgcv(key) && isconstant)
+		{
+			GCobj *keygcobj = gcval(key);
+			if (keygcobj->gch.gct == ~LJ_TSTR)
+			{
+				fixstring(gco2str(keygcobj));
+			}
+			else if (keygcobj->gch.gct == ~LJ_TTAB)
+			{
+				markconstant(keygcobj);
+				if (iswhite(keygcobj) == 0)
+				{
+					makewhite(g, keygcobj);
+				}
+			}
+		}
+		gc_marktv(g, key);
+	}
+	if (!(weak & LJ_GC_WEAKVAL))
+	{
+		TValue *val = &n->val;
+		if (tvisgcv(val) && isconstant)
+		{
+			GCobj *valgcobj = gcval(val);
+			if (valgcobj->gch.gct == ~LJ_TSTR)
+			{
+				fixstring(gco2str(valgcobj));
+			}
+			else if (valgcobj->gch.gct == ~LJ_TTAB)
+			{
+				markconstant(valgcobj);
+				if (iswhite(valgcobj) == 0)
+				{
+					makewhite(g, valgcobj);
+				}
+			}
+		}
+		gc_marktv(g, val);
+	}
       }
     }
   }
@@ -392,6 +464,14 @@ static GCRef *gc_sweep(global_State *g, GCRef *p, uint32_t lim)
   int ow = otherwhite(g);
   GCobj *o;
   while ((o = gcref(*p)) != NULL && lim-- > 0) {
+	  if (isfixed(o) && isconstant(o) && !(g->gc.currentwhite & LJ_GC_CONSTANT)) {
+		  setgcrefr(*p, o->gch.nextgc);
+		  if (o == gcref(g->gc.root))
+			  setgcrefr(g->gc.root, o->gch.nextgc);  /* Adjust list anchor. */
+		  setgcrefr(o->gch.nextgc, g->rootconstant);
+		  setgcref(g->rootconstant, o);
+		  continue;
+	  }
     if (o->gch.gct == ~LJ_TTHREAD)  /* Need to sweep open upvalues, too. */
       gc_fullsweep(g, &gco2th(o)->openupval);
     if (((o->gch.marked ^ LJ_GC_WHITES) & ow)) {  /* Black or current white? */
@@ -558,8 +638,9 @@ void lj_gc_freeall(global_State *g)
 {
   MSize i, strmask;
   /* Free everything, except super-fixed objects (the main thread). */
-  g->gc.currentwhite = LJ_GC_WHITES | LJ_GC_SFIXED;
+  g->gc.currentwhite = LJ_GC_WHITES | LJ_GC_SFIXED | LJ_GC_CONSTANT;
   gc_fullsweep(g, &g->gc.root);
+  gc_fullsweep(g, &g->rootconstant);
   strmask = g->strmask;
   for (i = 0; i <= strmask; i++)  /* Free all string hash chains. */
     gc_fullsweep(g, &g->strhash[i]);
