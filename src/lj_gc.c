@@ -204,6 +204,7 @@ static int gc_traverse_tab(global_State *g, GCtab *t)
 	for (i = 0; i < asize; i++)
 	{
 		TValue *val = arrayslot(t, i);
+    gc_marktv(g, val);
 		if (tvisgcv(val) && isconstant)
 		{
 			GCobj *valgcobj = gcval(val);
@@ -211,7 +212,7 @@ static int gc_traverse_tab(global_State *g, GCtab *t)
 			{
 				fixstring(gco2str(valgcobj));
 			}
-			else if (valgcobj->gch.gct == ~LJ_TTAB)
+			else if (valgcobj->gch.gct == ~LJ_TTAB || valgcobj->gch.gct == ~LJ_TFUNC)
 			{
 				markconstant(valgcobj);
 				if (iswhite(valgcobj) == 0)
@@ -220,7 +221,6 @@ static int gc_traverse_tab(global_State *g, GCtab *t)
 				}
 			}
 		}
-		gc_marktv(g, val);
 	}
   }
   if (t->hmask > 0) {  /* Mark hash part. */
@@ -233,6 +233,7 @@ static int gc_traverse_tab(global_State *g, GCtab *t)
 	if (!(weak & LJ_GC_WEAKKEY))
 	{
 		TValue *key = &n->key;
+    gc_marktv(g, key);
 		if (tvisgcv(key) && isconstant)
 		{
 			GCobj *keygcobj = gcval(key);
@@ -240,7 +241,7 @@ static int gc_traverse_tab(global_State *g, GCtab *t)
 			{
 				fixstring(gco2str(keygcobj));
 			}
-			else if (keygcobj->gch.gct == ~LJ_TTAB)
+			else if (keygcobj->gch.gct == ~LJ_TTAB || keygcobj->gch.gct == ~LJ_TFUNC)
 			{
 				markconstant(keygcobj);
 				if (iswhite(keygcobj) == 0)
@@ -249,11 +250,11 @@ static int gc_traverse_tab(global_State *g, GCtab *t)
 				}
 			}
 		}
-		gc_marktv(g, key);
 	}
 	if (!(weak & LJ_GC_WEAKVAL))
 	{
 		TValue *val = &n->val;
+    gc_marktv(g, val);
 		if (tvisgcv(val) && isconstant)
 		{
 			GCobj *valgcobj = gcval(val);
@@ -261,7 +262,7 @@ static int gc_traverse_tab(global_State *g, GCtab *t)
 			{
 				fixstring(gco2str(valgcobj));
 			}
-			else if (valgcobj->gch.gct == ~LJ_TTAB)
+			else if (valgcobj->gch.gct == ~LJ_TTAB || valgcobj->gch.gct == ~LJ_TFUNC)
 			{
 				markconstant(valgcobj);
 				if (iswhite(valgcobj) == 0)
@@ -270,7 +271,6 @@ static int gc_traverse_tab(global_State *g, GCtab *t)
 				}
 			}
 		}
-		gc_marktv(g, val);
 	}
       }
     }
@@ -281,13 +281,30 @@ static int gc_traverse_tab(global_State *g, GCtab *t)
 /* Traverse a function. */
 static void gc_traverse_func(global_State *g, GCfunc *fn)
 {
+  GCobj *gco = obj2gco(fn);
+  if (isfixed(gco)) return;   // 已加入到constant链表，不再往下遍历;
   gc_markobj(g, tabref(fn->c.env));
+  int isconstant = isconstant(gco);
+  if (isconstant)
+  {
+    markfixed(gco);
+  }
   if (isluafunc(fn)) {
     uint32_t i;
     lua_assert(fn->l.nupvalues <= funcproto(fn)->sizeuv);
     gc_markobj(g, funcproto(fn));
+    if (isconstant)
+    {
+      markfixed(obj2gco(funcproto(fn)));
+    }
     for (i = 0; i < fn->l.nupvalues; i++)  /* Mark Lua function upvalues. */
+    {
       gc_markobj(g, &gcref(fn->l.uvptr[i])->uv);
+      if (isconstant)
+      {
+        markfixed(obj2gco(&gcref(fn->l.uvptr[i])->uv));
+      }
+    }
   } else {
     uint32_t i;
     for (i = 0; i < fn->c.nupvalues; i++)  /* Mark C function upvalues. */
