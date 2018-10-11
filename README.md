@@ -16,4 +16,4 @@ table.constant(t)
 ## 注意
 - 从给table设置constant之后完整的一次gc之前，不能主动调用full gc否则会导致table子元素没有被标记，这样就会被误删除，导致访问的时候出现内存问题
 - table不能设置weak
-- table元素只能是table、string、number，不能有function，线程
+- table元素只能是table、string、number、function，不能有线程
